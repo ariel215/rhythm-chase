@@ -1,8 +1,7 @@
 
-
 use raylib::prelude::*;
-use std::time::{self, *};
-use rhythm_chase::*;
+use std::{str::FromStr, time::{self, *}};
+use rhythm_chase::{keypress::KeyPressDetector, *};
 use array2d::{Array2D, Error};
 
 fn main() -> Result<(), Error>{
@@ -29,11 +28,13 @@ fn main() -> Result<(), Error>{
         margin
     );
     let mut time = SystemTime::now();
+    let mut k = 0;
     while !rl.window_should_close() {
         let duration = SystemTime::now().duration_since(time).unwrap();
         time = SystemTime::now();
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::WHITE);
+        k += 1;
         level.update(duration.as_secs_f64());
         level.draw(&mut d);
     }

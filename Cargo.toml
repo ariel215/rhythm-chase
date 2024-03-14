@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 array2d = "0.3.2"
+mki = "0.2.3"
 raylib = "3.7.0"
