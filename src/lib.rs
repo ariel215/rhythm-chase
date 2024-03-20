@@ -1,17 +1,28 @@
-use std::{collections::HashSet, ops::Range, str::FromStr, usize};
+use std::{collections::HashSet, hash::Hash, str::FromStr, usize};
 use mki::Keyboard;
 use raylib::prelude::*;
 use array2d::Array2D;
-use std::prelude::*;
+use serde::*;
+use std::cmp::Eq;
 
-pub mod keypress;
-
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, PartialEq, Clone,Serialize,Deserialize)]
 pub struct Tile {
     color: Color, 
     rhythm: Option<TileRhythm>
     // todo: add more features
 }
+
+impl Eq for Tile {
+    
+}
+
+impl Hash for Tile {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.color.color_to_int().hash(state);
+        self.rhythm.hash(state);
+    }
+}
+
 
 impl Tile {
     pub fn from(color: &Color, rhythm: Option<TileRhythm> ) -> Self{
@@ -21,7 +32,9 @@ impl Tile {
         }
     }
     pub fn update(&mut self, delta: Sec){
-        self.rhythm.as_mut().map(|r|r.update(delta));
+        if let Some(rhythm) = &mut self.rhythm  {
+            rhythm.update(delta)
+        }
     }
 
     pub fn get_color(&self) -> Color {
@@ -38,6 +51,8 @@ impl Tile {
     }
 }
 
+
+
 pub type Sec = f64;
 pub type BPM = f64;
 
@@ -46,7 +61,7 @@ pub fn beat_length(tempo: BPM) -> Sec {
 }
 
 
-#[derive(Debug,Default,Clone)]
+#[derive(Debug,Default,Clone,PartialEq, Serialize,Deserialize)]
 pub struct TileRhythm {
     // Number of beats in a measure
     length: usize,
@@ -54,14 +69,31 @@ pub struct TileRhythm {
     duration: Sec,
     // which beats to play; zero-indexed
     beats: HashSet<usize>,
-    // 
+    //
+    #[serde(skip)]
     time: Sec,
+}
+
+fn canonical(v: f64) -> i64{
+    (v*1024.0*1024.0).round() as i64
+}
+
+impl Hash for TileRhythm{
+
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.length.hash(state);
+        canonical(self.duration).hash(state);
+        for b in &self.beats{
+            b.hash(state);
+        }
+        canonical(self.time).hash(state);
+    }
 }
 
 impl TileRhythm{
     pub fn update(&mut self, delta: Sec){
         self.time += delta;
-        self.time = self.time % (self.duration * self.length as Sec);
+        self.time %= self.duration * self.length as Sec;
     }
 
     pub fn on(&self) -> bool {
@@ -77,19 +109,13 @@ impl TileRhythm{
     }
 
     pub fn in_window(&self, window_size: Sec)-> bool {
-        for beat in self.beats.iter(){
-            let p = self.position();
-            let distance = ((*beat as f64) - p).abs();
-            let window_pct = window_size / self.duration;
-            if distance < window_pct {
-                return true
-            }
-        }
-        false
-        
-        // self.beats.iter().any(
-        //     |i| (*i as f64 - self.position()).abs() < (window_size / self.duration)
-        // )
+        if self.beats.contains(&0) && (self.length as f64 - self.position()) < (window_size / self.duration) {
+            return true
+        } 
+
+        self.beats.iter().any(
+            |beat| ((*beat as f64) - self.position()).abs() < (window_size / self.duration)
+        )
     }
 
     pub fn new<T>(length: usize, tempo: BPM, beats: T) -> Self 
@@ -143,6 +169,7 @@ fn rhythm_window(){
 }
 
 
+#[derive(Default,Debug, Clone)]
 pub struct Player{
     position: (usize, usize),
     size: f32,
@@ -168,7 +195,7 @@ impl Player {
 
     pub fn update(&mut self, delta: Sec){
         self.rhythm.update(delta);
-        let keys_pressed = self.keys_to_check.iter().filter_map(|k|if mki::are_pressed(&[*k]) {Some(k.clone())} else {None}).collect::<Vec<_>>();
+        let keys_pressed = self.keys_to_check.iter().filter_map(|k|if mki::are_pressed(&[*k]) {Some(*k)} else {None}).collect::<Vec<_>>();
         for key in keys_pressed {
             self.move_(
             match key {
@@ -195,7 +222,7 @@ impl Player {
     pub fn move_(&mut self, direction: (isize, isize)){
         let new_x = self.position.0 as isize + direction.0;
         let new_y = self.position.1  as isize + direction.1;
-        if self.rhythm.in_window(self.movement_window) && (self.last_moved == None) {
+        if self.rhythm.in_window(self.movement_window) && (self.last_moved.is_none()) {
             if (new_x >= 0) && (new_x < self.map_size.0 as isize){
                 self.position.0 = new_x as usize;
             }
@@ -209,6 +236,7 @@ impl Player {
 }
 
 
+#[derive(Debug,Serialize,Deserialize)]
 pub struct TileDimensions {
     tile_width: i32,
     tile_height: i32,
@@ -233,19 +261,76 @@ impl TileDimensions {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Level {
-    pub tiles: Array2D<Tile>,
+    pub tiles: TileMap,
     pub dimensions: TileDimensions,
-    player: Player,
+    #[serde(skip)]
+    pub player: Player,
     // todo: add more features
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TileMap{
+    tiles: Vec<Tile>,
+    map: Array2D<usize>,
+}
+
+impl From<&Array2D<Tile>>for TileMap {
+    fn from(tiles: &Array2D<Tile>) -> Self {
+        let tileset: HashSet<_> = tiles.elements_row_major_iter().collect();
+        let tiles_with_indices: Vec<_> = tileset.into_iter().collect();
+        let tilemap = Array2D::from_iter_row_major(tiles.elements_row_major_iter().map(
+            |t | {
+                for (i,t1) in tiles_with_indices.iter().enumerate(){
+                    if &t == t1 {
+                        return i
+                    }
+                }
+                panic!()
+            }
+        ),
+        tiles.num_rows(),
+        tiles.num_columns()
+        ).unwrap();
+        Self {
+            tiles: tiles_with_indices.into_iter().cloned().collect(),
+            map: tilemap,
+        }
+    }
+}
+
+
+impl TileMap{
+    fn enumerate_column_major(&self) -> impl Iterator<Item=((usize,usize),&Tile)>{
+        self.map.enumerate_column_major().map(
+            |((r,c),idx)| ((r,c), &self.tiles[*idx])
+        )
+    }
+
+    fn indices_column_major(&self) -> impl Iterator<Item=(usize,usize)>{
+        self.map.indices_column_major()
+    }
+
+    fn get(&self, r: usize, c:usize) -> Option<&Tile>{
+        let idx = self.map.get(r,c);
+        idx.map(|i| &self.tiles[*i])
+    }
+
+    fn get_mut(&mut self, r: usize, c: usize) -> Option<&mut Tile>{
+        let idx = self.map.get(r,c);
+        idx.map(|i| &mut self.tiles[*i])
+    }
+}
+
+
 impl Level {
+
     pub fn new(tiles: Array2D<Tile>, tile_width: i32, tile_height: i32, row_gap: i32, column_gap: i32) -> Self{
-        let duration = tiles.get_column_major(0).as_ref().map(|t| t.rhythm.as_ref()).flatten().map(|tr| tr.duration).unwrap_or(0.);
+        let duration = tiles.get_column_major(0).as_ref().and_then(|t| t.rhythm.as_ref()).map(|tr| tr.duration).unwrap_or(0.);
         let map_size = (tiles.row_len(), tiles.column_len());
         Level {
-            tiles,
+            tiles: <&Array2D<Tile> as Into<TileMap>>::into(&tiles),
             dimensions: TileDimensions {tile_width,
             tile_height,
             row_gap,
@@ -253,6 +338,11 @@ impl Level {
             player: Player::new((1,1),beat_length(duration), map_size,0.05)
         }
     }
+
+    pub fn size(&self) -> (usize, usize){
+        (self.tiles.map.num_rows(), self.tiles.map.num_columns())
+    }
+
     pub fn draw(&self, handle: &mut RaylibDrawHandle){
         for ((row,col), tile) in self.tiles.enumerate_column_major() {
             let (x_tl,y_tl) = self.dimensions.top_left(row as i32, col as i32);
@@ -272,8 +362,7 @@ impl Level {
 
 
     pub fn update(&mut self, delta: Sec){
-        for (r,c) in self.tiles.indices_column_major(){
-            let tile = self.tiles.get_mut(r, c).unwrap();
+        for tile in self.tiles.tiles.iter_mut(){
             tile.update(delta)
         }
         self.player.update(delta);
