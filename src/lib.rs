@@ -263,6 +263,7 @@ impl TileDimensions {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Level {
+    #[serde(flatten)]
     pub tiles: TileMap,
     pub dimensions: TileDimensions,
     #[serde(skip)]
