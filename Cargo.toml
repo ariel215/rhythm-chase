@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 array2d = { version = "0.3.2", features = ["serde"] }
+iset = { version = "0.2.2", features = ["serde"] }
 mki = "0.2.3"
 raylib = { version = "3.7.0", features = ["serde", "with_serde"] }
 serde = "1.0.197"

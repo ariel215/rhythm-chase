@@ -5,16 +5,36 @@ use array2d::Array2D;
 use serde::*;
 use std::cmp::Eq;
 
+
+// pub mod tiles;
+
+
+macro_rules! vec2 {
+    ($pair: expr) => {
+        Vector2 {x:($pair).0 as f32, y:($pair).1 as f32}
+    };
+
+    ($x:expr, $y:expr) => {
+        Vector2 {x:($x) as f32, y:($y) as f32}
+    };
+
+}
+
+
 #[derive(Debug, Default, PartialEq, Clone,Serialize,Deserialize)]
 pub struct Tile {
     color: Color, 
-    rhythm: Option<TileRhythm>
+    rhythm: Option<TileRhythm>,
+    #[serde(default = "default_goal")]
+    goal: bool
     // todo: add more features
 }
 
-impl Eq for Tile {
-    
+fn default_goal()->bool{
+    false
 }
+
+impl Eq for Tile {}
 
 impl Hash for Tile {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -23,12 +43,12 @@ impl Hash for Tile {
     }
 }
 
-
 impl Tile {
     pub fn from(color: &Color, rhythm: Option<TileRhythm> ) -> Self{
         Tile {
             color: *color,
             rhythm,
+            ..Default::default()
         }
     }
     pub fn update(&mut self, delta: Sec){
@@ -65,10 +85,10 @@ pub fn beat_length(tempo: BPM) -> Sec {
 pub struct TileRhythm {
     // Number of beats in a measure
     length: usize,
-    // Length of a beat, in seconds
-    duration: Sec,
     // which beats to play; zero-indexed
     beats: HashSet<usize>,
+    // Length of a beat, in seconds
+    duration: Sec,
     //
     #[serde(skip)]
     time: Sec,
@@ -197,14 +217,14 @@ impl Player {
         self.rhythm.update(delta);
         let keys_pressed = self.keys_to_check.iter().filter_map(|k|if mki::are_pressed(&[*k]) {Some(*k)} else {None}).collect::<Vec<_>>();
         for key in keys_pressed {
-            self.move_(
-            match key {
+            let direction = match key {
                 Keyboard::W | Keyboard::Up => (0, -1),
                 Keyboard::A | Keyboard::Left => (-1, 0),
                 Keyboard::S | Keyboard::Down => (0, 1),
                 Keyboard::D | Keyboard::Right => (1,0),
                 _ => (0,0)
-            });
+            };
+            self.move_(vec2!(direction))
         }
         if let Some(pos) = self.last_moved {
             if (self.rhythm.beat() != pos.trunc()) || (self.rhythm.position() < pos) {
@@ -219,15 +239,14 @@ impl Player {
         (tween * self.size as f64) as f32
     }
 
-    pub fn move_(&mut self, direction: (isize, isize)){
-        let new_x = self.position.0 as isize + direction.0;
-        let new_y = self.position.1  as isize + direction.1;
+    pub fn move_(&mut self, direction: Vector2){
+        let new_position = vec2!(self.position) + direction;
         if self.rhythm.in_window(self.movement_window) && (self.last_moved.is_none()) {
-            if (new_x >= 0) && (new_x < self.map_size.0 as isize){
-                self.position.0 = new_x as usize;
+            if (new_position.x >= 0.0) && (new_position.x < self.map_size.0 as f32){
+                self.position.0  = new_position.x as usize
             }
-            if (new_y >= 0) && (new_y < self.map_size.1 as isize){
-                self.position.1 = new_y as usize;
+            if (new_position.y >= 0.0) && (new_position.y < self.map_size.1 as f32){
+                self.position.1 = new_position.y as usize
             }
             self.last_moved = Some(self.rhythm.position());
         }
@@ -266,8 +285,11 @@ pub struct Level {
     #[serde(flatten)]
     pub tiles: TileMap,
     pub dimensions: TileDimensions,
+    starting_location: Vector2,
     #[serde(skip)]
     pub player: Player,
+    #[serde(skip)]
+    pub has_won: bool,
     // todo: add more features
 }
 
@@ -327,7 +349,7 @@ impl TileMap{
 
 impl Level {
 
-    pub fn new(tiles: Array2D<Tile>, tile_width: i32, tile_height: i32, row_gap: i32, column_gap: i32) -> Self{
+    pub fn new(tiles: Array2D<Tile>, tile_width: i32, tile_height: i32, row_gap: i32, column_gap: i32, starting_location: Vector2) -> Self{
         let duration = tiles.get_column_major(0).as_ref().and_then(|t| t.rhythm.as_ref()).map(|tr| tr.duration).unwrap_or(0.);
         let map_size = (tiles.row_len(), tiles.column_len());
         Level {
@@ -336,12 +358,20 @@ impl Level {
             tile_height,
             row_gap,
             column_gap},
-            player: Player::new((1,1),beat_length(duration), map_size,0.05)
+            player: Player::new((1,1),beat_length(duration), map_size,0.05),
+            has_won: false,
+            starting_location
         }
     }
 
-    pub fn size(&self) -> (usize, usize){
+    pub fn size_tiles(&self) -> (usize, usize) {
         (self.tiles.map.num_rows(), self.tiles.map.num_columns())
+    }
+
+    pub fn size_pixels(&self) -> Vector2 {
+        let size = vec2!(self.size_tiles());
+        size * vec2!(self.dimensions.tile_height, self.dimensions.tile_width) 
+            + (size + Vector2::one()) * vec2!(self.dimensions.row_gap,self.dimensions.column_gap)
     }
 
     pub fn draw(&self, handle: &mut RaylibDrawHandle){
@@ -358,7 +388,21 @@ impl Level {
             self.player.position.0 as i32, self.player.position.1 as i32);
         let player_radius = self.dimensions.tile_height as f32 * self.player.size() / 3.0;
         handle.draw_circle(player_x, player_y, 
-            player_radius, Color::YELLOW)
+            player_radius, Color::YELLOW);
+
+        if self.has_won {
+            let (rows, columns) = self.size_tiles();
+            let height = (rows as i32) * self.dimensions.tile_height;
+            let width = (columns as i32) * self.dimensions.tile_width;
+            let (height, width) = (height as f64, width as f64);
+            handle.draw_rectangle(
+                (0.2 * width) as i32, 
+                (0.2 * height) as i32, 
+                (0.4 * width) as i32, 
+                (0.2 * height) as i32, Color::GRAY);
+            handle.draw_text("Level cleared!", (0.32 * width) as i32, 
+            (0.3 * height) as i32, 18, Color::BLACK)
+        }
     }
 
 
@@ -366,7 +410,16 @@ impl Level {
         for tile in self.tiles.tiles.iter_mut(){
             tile.update(delta)
         }
-        self.player.update(delta);
+
+        if !self.has_won {
+            self.player.update(delta);
+            let (row, col) = self.player.position;
+            if self.tiles.get(row,col).map_or(false,|t| t.goal){
+                self.has_won = true
+            }
+        }
     }
+    
 }
+
 

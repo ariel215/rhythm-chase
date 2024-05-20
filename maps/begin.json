@@ -65,7 +65,8 @@
                 "b": 5,
                 "a": 255
             },
-            "rhythm": null
+            "rhythm": null,
+            "goal": true
         }
     ],
     "dimensions": {
@@ -73,5 +74,6 @@
         "tile_height": 60,
         "row_gap": 6,
         "column_gap": 6
-      }
+    },
+    "starting_location": [0,3]
 }

@@ -57,7 +57,7 @@ fn main() -> Result<(), Error>{
     // serde_json::to_writer_pretty(json, &level)?;
     let json = std::fs::File::open("maps/begin.json")?;
     let mut level: Level = serde_json::from_reader(io::BufReader::new( json))?;
-    level.player = Player::new((0,0), 120., level.size(), 0.15);
+    level.player = Player::new((0,0), 120., level.size_tiles(), 0.15);
     let mut time = SystemTime::now();
     while !rl.window_should_close() {
         let duration = SystemTime::now().duration_since(time).unwrap();
