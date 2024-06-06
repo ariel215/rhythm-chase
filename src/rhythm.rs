@@ -77,41 +77,6 @@ impl Rhythm{
         }
     }
 
-    pub fn euclidean(measure_length: usize, n_beats: usize, tempo: BPM) -> Self {
-        
-
-        fn euclid(p: usize, n:usize) -> Vec<(usize,Vec<bool>)> {
-            let a : Vec<bool> = vec![true];
-            let n_a = p;
-            let b : Vec<bool>= vec![false];
-            let n_b = n-p;
-
-            while n_b > 1{
-                let mut  c = a.clone();
-                c.append(&mut b.clone());
-
-                let d = a.clone();
-            
-                if n_a > n_b {
-                    let t = n_a;
-                    let n_a = n_b;
-                    let n_b = t - n_b;
-                } else {
-                    let t = n_b;
-                    let n_a = n_a;
-                    let n_b = t - n_a;
-                    let d = b.clone();
-                }
-
-                let a = c;
-                let b = d;
-            }
-
-            vec![(n_a,a),(n_b,b)]
-        }
-        
-    }
-
 }
 
 #[test]

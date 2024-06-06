@@ -87,7 +87,22 @@ impl Tile {
     }
 }
 
+#[test]
+fn test_tile_on(){
+    let rhyth = Rhythm::new(2, 60.0, [0]);
+    let mut t = Tile{
+        color: Color::WHITE,
+        rhythm: Some(rhyth),
+        goal: false
+    };
+    assert!(t.on(0.015).unwrap());
+    t.rhythm.as_mut().map(|r| r.update(1.005));
+    assert!(t.on(0.015).unwrap());
+    t.rhythm.as_mut().map(|r| r.update(0.015));
+    assert!(!t.on(0.015).unwrap())
 
+
+}
 
 
 #[derive(Default,Debug, Clone)]
@@ -254,13 +269,8 @@ impl TileMap{
 }
 
 
-struct Game{
-    level: Level,
-}
-
-
 impl Level {
-
+    const WINDOW: f64 = 0.05;
     pub fn new(tiles: Array2D<Tile>, tile_width: i32, tile_height: i32, row_gap: i32, column_gap: i32, starting_location: Vector2) -> Self{
         let duration = tiles.get_column_major(0).as_ref().and_then(|t| t.rhythm.as_ref()).map(|tr| tr.duration).unwrap_or(0.);
         let map_size = (tiles.row_len(), tiles.column_len());
@@ -270,7 +280,7 @@ impl Level {
             tile_height,
             row_gap,
             column_gap},
-            player: Player::new((1,1),beat_length(duration), map_size,0.05),
+            player: Player::new((1,1),beat_length(duration), map_size, Level::WINDOW),
             state: PlayerState::Playing,
             starting_location
         }
@@ -345,7 +355,7 @@ impl Level {
                     None => {self.state = PlayerState::Died}
                     Some(tile) => {
                         if let Some(_) = tile.rhythm.as_ref() {
-                            if !tile.on(0.05).unwrap(){
+                            if !tile.on(Level::WINDOW + 0.015).unwrap(){
                                 self.state = PlayerState::Died;
                             } else if tile.goal {
                                 self.state = PlayerState::Cleared;
