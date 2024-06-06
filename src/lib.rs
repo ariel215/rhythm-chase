@@ -1,4 +1,5 @@
-use std::{collections::HashSet, hash::Hash, str::FromStr, usize};
+use std::{collections::HashSet, default, hash::Hash, str::FromStr, usize};
+use inputs::Input;
 use mki::Keyboard;
 use raylib::prelude::*;
 use array2d::Array2D;
@@ -7,6 +8,7 @@ use std::cmp::Eq;
 
 
 // pub mod tiles;
+pub mod inputs;
 
 
 macro_rules! vec2 {
@@ -55,6 +57,18 @@ impl Tile {
         if let Some(rhythm) = &mut self.rhythm  {
             rhythm.update(delta)
         }
+    }
+
+    pub fn on(&self, window_size: Sec) -> Option<bool> {
+        self.rhythm.as_ref().map(|r|{
+            if r.on() {true}
+            else if r.in_window(window_size){ true} 
+            else {
+                let mut new_r = r.clone();
+                new_r.update(-1.0 * new_r.duration); // go back one beat
+                return new_r.in_window(window_size)
+            }
+        })
     }
 
     pub fn get_color(&self) -> Color {
@@ -196,35 +210,33 @@ pub struct Player{
     rhythm: TileRhythm,
     map_size: (usize,usize),
     movement_window: Sec,
-    keys_to_check: Vec<Keyboard>,
     last_moved: Option<f64>
 }
 
 impl Player {
-    const KEYS_TO_CHECK: [&'static str; 8] = ["W","A","S","D", "Up", "Left", "Right", "Down"];
 
     pub fn new(position: (usize, usize), tempo: BPM, map_size: (usize,usize), window: Sec) -> Self{
         Self {position,size: 1.0,
             rhythm: TileRhythm::new(1,tempo,[0]),
             map_size,
             movement_window: window,
-            keys_to_check: Self::KEYS_TO_CHECK.iter().map(|s|mki::Keyboard::from_str(s).unwrap()).collect::<Vec<_>>(),
             last_moved: None
             }
     }
 
-    pub fn update(&mut self, delta: Sec){
+    pub fn update(&mut self, delta: Sec, inputs: &[Input]){
         self.rhythm.update(delta);
-        let keys_pressed = self.keys_to_check.iter().filter_map(|k|if mki::are_pressed(&[*k]) {Some(*k)} else {None}).collect::<Vec<_>>();
-        for key in keys_pressed {
-            let direction = match key {
-                Keyboard::W | Keyboard::Up => (0, -1),
-                Keyboard::A | Keyboard::Left => (-1, 0),
-                Keyboard::S | Keyboard::Down => (0, 1),
-                Keyboard::D | Keyboard::Right => (1,0),
-                _ => (0,0)
+        for inpt in inputs.iter() {
+            if let Input::Key(k) = inpt{
+                let direction = match k {
+                    KeyboardKey::KEY_W | KeyboardKey::KEY_UP => (0, -1),
+                    KeyboardKey::KEY_A | KeyboardKey::KEY_LEFT => (-1, 0),
+                    KeyboardKey::KEY_S | KeyboardKey::KEY_DOWN => (0, 1),
+                    KeyboardKey::KEY_D | KeyboardKey::KEY_RIGHT => (1,0),
+                    _ => (0,0)
+                };
+                self.move_(vec2!(direction))
             };
-            self.move_(vec2!(direction))
         }
         if let Some(pos) = self.last_moved {
             if (self.rhythm.beat() != pos.trunc()) || (self.rhythm.position() < pos) {
@@ -280,6 +292,14 @@ impl TileDimensions {
     }
 }
 
+#[derive(Debug, Default)]
+enum PlayerState {
+    #[default]
+    Playing,
+    Cleared,
+    Died
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Level {
     #[serde(flatten)]
@@ -289,7 +309,7 @@ pub struct Level {
     #[serde(skip)]
     pub player: Player,
     #[serde(skip)]
-    pub has_won: bool,
+    pub state: PlayerState,
     // todo: add more features
 }
 
@@ -347,6 +367,11 @@ impl TileMap{
 }
 
 
+struct Game{
+    level: Level,
+}
+
+
 impl Level {
 
     pub fn new(tiles: Array2D<Tile>, tile_width: i32, tile_height: i32, row_gap: i32, column_gap: i32, starting_location: Vector2) -> Self{
@@ -359,7 +384,7 @@ impl Level {
             row_gap,
             column_gap},
             player: Player::new((1,1),beat_length(duration), map_size,0.05),
-            has_won: false,
+            state: PlayerState::Playing,
             starting_location
         }
     }
@@ -375,6 +400,7 @@ impl Level {
     }
 
     pub fn draw(&self, handle: &mut RaylibDrawHandle){
+        
         for ((row,col), tile) in self.tiles.enumerate_column_major() {
             let (x_tl,y_tl) = self.dimensions.top_left(row as i32, col as i32);
             let (x_br, y_br) = self.dimensions.bottom_right(row as i32, col as i32);
@@ -389,37 +415,65 @@ impl Level {
         let player_radius = self.dimensions.tile_height as f32 * self.player.size() / 3.0;
         handle.draw_circle(player_x, player_y, 
             player_radius, Color::YELLOW);
+        
 
-        if self.has_won {
-            let (rows, columns) = self.size_tiles();
-            let height = (rows as i32) * self.dimensions.tile_height;
-            let width = (columns as i32) * self.dimensions.tile_width;
-            let (height, width) = (height as f64, width as f64);
+        let (rows, columns) = self.size_tiles();
+        let height = (rows as i32) * self.dimensions.tile_height;
+        let width = (columns as i32) * self.dimensions.tile_width;
+        let (height, width) = (height as f64, width as f64);
+        let mut draw_msg_box = || {
             handle.draw_rectangle(
                 (0.2 * width) as i32, 
                 (0.2 * height) as i32, 
                 (0.4 * width) as i32, 
                 (0.2 * height) as i32, Color::GRAY);
-            handle.draw_text("Level cleared!", (0.32 * width) as i32, 
-            (0.3 * height) as i32, 18, Color::BLACK)
+        };
+
+        match self.state {
+            PlayerState::Cleared => {
+                draw_msg_box();
+                handle.draw_text("Level cleared!", (0.32 * width) as i32, 
+                (0.3 * height) as i32, 18, Color::BLACK)
+    
+            },
+            PlayerState::Died => {
+                draw_msg_box();
+                handle.draw_text("You died", 3 * width as i32/ 10, 3 * height as i32 / 10, 18, Color::BLACK)
+            }, // need to implement this
+            PlayerState::Playing => {}
         }
     }
 
 
-    pub fn update(&mut self, delta: Sec){
+    pub fn update(&mut self, delta: Sec, inputs: &[Input]){
         for tile in self.tiles.tiles.iter_mut(){
             tile.update(delta)
         }
 
-        if !self.has_won {
-            self.player.update(delta);
-            let (row, col) = self.player.position;
-            if self.tiles.get(row,col).map_or(false,|t| t.goal){
-                self.has_won = true
-            }
+        match self.state {
+            PlayerState::Playing => {
+                self.player.update(delta, inputs);
+                let (row, col) = self.player.position;
+                match self.tiles.get(row,col){
+                    None => {self.state = PlayerState::Died}
+                    Some(tile) => {
+                        if let Some(_) = tile.rhythm.as_ref() {
+                            if !tile.on(0.05).unwrap(){
+                                self.state = PlayerState::Died;
+                            } else if tile.goal {
+                                self.state = PlayerState::Cleared;
+                            }
+                        } 
+                    }
+                }
+            },
+            _ => {}
         }
     }
     
 }
 
-
+struct Camera {
+    fov: (usize,usize),
+    position: (usize,usize)
+}
