@@ -1,6 +1,6 @@
 
 use raylib::prelude::*;
-use std::{io, time::*};
+use std::{io, thread::{sleep}, time::*};
 use rhythm_chase::*;
 
 #[derive(Debug)]
@@ -29,11 +29,15 @@ impl From<serde_json::Error> for Error {
 }
 
 
+const WINDOW_HEIGHT: i32 = 640;
+const WINDOW_WIDTH: i32 = 480;
+
 fn main() -> Result<(), Error>{
     let (w,h): (i32,i32) = (640,480);
     let (mut rl, thread) = raylib::init()
         .size(w,h)
         .title("Checkerboard")
+        .resizable()
         .build();
     // let downbeat = TileRhythm::new(2, 120., [0]);
     // let upbeat = TileRhythm::new(2,120.,[1]);
@@ -55,20 +59,63 @@ fn main() -> Result<(), Error>{
     // let player = level.player.clone();
     // let json  = std::fs::File::create("level.json")?;
     // serde_json::to_writer_pretty(json, &level)?;
-    let json = std::fs::File::open("maps/bigmap.json")?;
-    let mut level: Level = serde_json::from_reader(io::BufReader::new( json))?;
-    level.player = Player::new((0,0), 120., level.size_tiles(), 0.15);
-    let mut time = SystemTime::now();
+    // let json = std::fs::File::open("maps/bigmap.json")?;
+    // let mut level: Level = serde_json::from_reader(io::BufReader::new( json))?;
+    // level.player = Player::new((0,0), 120., level.size_tiles(), 0.15);
+    // let mut time = SystemTime::now();
     while !rl.window_should_close() {
-        let duration = SystemTime::now().duration_since(time).unwrap();
-        time = SystemTime::now();
-        let inputs = rhythm_chase::inputs::get_inputs(&mut rl);
-        level.update(duration.as_secs_f64(), &inputs);
+        // let duration = SystemTime::now().duration_since(time).unwrap();
+        // time = SystemTime::now();
+        // let inputs = rhythm_chase::inputs::get_inputs(&mut rl);
+        // level.update(duration.as_secs_f64(), &inputs);
         {
             let mut d: RaylibDrawHandle = rl.begin_drawing(&thread);
+            let width = d.get_screen_width();
+            let height = d.get_screen_height();
             d.clear_background(Color::WHITE);
-            level.draw(&mut d);
-        }
+            // draw_txt_centered(&mut d, "hello world\nhello again", height / 10);
+            draw_txt_centered(&mut d, 
+                "hello world I hope you have a good day here is some more text \nand then some more let's just see how long we can make this thing go!!!",
+            height / 10);
+            // draw_txt(&mut d, "hello world\nI hope you have a good day\nhere is a third line as well\nwhat if we just keep going\nand never ever stop");
+        }   
     }
     Ok(())
+}
+
+
+fn draw_txt_centered(handle: &mut RaylibDrawHandle, text: &str, y: i32){
+    let width = handle.get_screen_width();
+    let font_size = 18;
+    let margin = 15;
+    let text_space = 3 * width / 5 - (2 * margin);
+    let space_size = measure_text(" ", font_size);
+    let mut contents = vec![vec![]];
+    for line in text.lines(){
+        let mut length = 0;
+        for word in line.split_ascii_whitespace(){
+            let word_length = measure_text(word, font_size) + space_size;
+            if length +  word_length < text_space{
+                length += word_length;
+                let clen = contents.len() - 1;
+                contents[clen].push(word)
+            } else {
+                length = word_length;
+                contents.push(vec![word])
+            }
+        }
+        contents.push(vec![]);
+    }
+    let contents: Vec<_> = contents.iter().map(|v|v.join(" ")).collect();
+    let n_lines = contents.len() as i32;
+    let height = (4 * (font_size + 2) / 3) * (n_lines+1); // would love to find a more principled way to get this to be the right size
+    let start_x = width / 5 + margin;
+    let start_y = y + font_size;
+    let text = contents.join("\n");
+    handle.draw_rectangle(
+        width/ 5,
+        y,
+        3 * width / 5,
+        height, Color::GRAY);
+    handle.draw_text(&text, start_x,start_y , font_size, Color::BLACK)
 }
