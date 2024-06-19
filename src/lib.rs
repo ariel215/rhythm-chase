@@ -25,6 +25,9 @@ macro_rules! vec2 {
 }
 
 
+
+
+
 #[derive(Debug, Default, PartialEq, Clone,Serialize,Deserialize)]
 pub struct Tile {
     color: Color, 
@@ -105,6 +108,15 @@ fn test_tile_on(){
 }
 
 
+#[derive(Debug, Default,Clone, Copy)]
+enum PlayerState {
+    #[default]
+    Playing,
+    Cleared,
+    Died
+}
+
+
 #[derive(Default,Debug, Clone)]
 pub struct Player{
     position: (usize, usize),
@@ -112,7 +124,8 @@ pub struct Player{
     rhythm: Rhythm,
     map_size: (usize,usize),
     movement_window: Sec,
-    last_moved: Option<f64>
+    last_moved: Option<f64>,
+    state: PlayerState
 }
 
 impl Player {
@@ -122,7 +135,8 @@ impl Player {
             rhythm: Rhythm::new(1,tempo,[0]),
             map_size,
             movement_window: window,
-            last_moved: None
+            last_moved: None,
+            ..Default::default()
             }
     }
 
@@ -194,13 +208,102 @@ impl TileDimensions {
     }
 }
 
-#[derive(Debug, Default)]
-enum PlayerState {
-    #[default]
-    Playing,
-    Cleared,
-    Died
+pub struct Game{
+    level: Level,
+    player: Player,
+    camera: Camera2D
 }
+
+impl Game {
+
+    pub fn new(level: Level, player: Option<Player>) -> Self {
+        let mut camera = Camera2D::default();
+        let player = player.unwrap_or_default();
+        camera.target = vec2!(player.position.0, player.position.1);
+        Self {
+            level, 
+            camera,
+            player
+        }
+    }
+
+    pub fn set_level(&mut self, new_level: Level){
+        self.level = new_level;
+    }
+
+    pub fn draw(&self, handle: &mut RaylibDrawHandle){
+            {
+                let mut mode2d = handle.begin_mode2D(self.camera);
+
+                for ((row,col), tile) in self.level.tiles.enumerate_column_major() {
+                    let (x_tl,y_tl) = self.level.dimensions.top_left(row as i32, col as i32);
+                    let tile_rect = Rectangle::new(x, y, self.level.dimensions.tile_width as f32, self.level.dimensions.tile_height as f32);
+                    mode2d.draw_rectangle_rec(
+                        tile_rect,
+                        tile.get_color()
+                    );
+                }
+                let (player_x,player_y)  = self.level.dimensions.center(
+                    self.player.position.0 as i32, self.player.position.1 as i32);
+                let player_radius = self.level.dimensions.tile_height as f32 * self.player.size() / 3.0;
+                mode2d.draw_circle(player_x, player_y, 
+                    player_radius, Color::YELLOW);
+            }
+
+        
+            let (rows, columns) = self.level.size_tiles();
+            let height = (rows as i32) * self.level.dimensions.tile_height;
+            let width = (columns as i32) * self.level.dimensions.tile_width;
+            let (height, width) = (height as f64, width as f64);
+            let mut draw_msg_box = || {
+                handle.draw_rectangle(
+                    (0.2 * width) as i32, 
+                    (0.2 * height) as i32, 
+                    (0.4 * width) as i32, 
+                    (0.2 * height) as i32, Color::GRAY);
+            };
+            
+            match self.player.state {
+                PlayerState::Cleared => {
+                    draw_msg_box();
+                    handle.draw_text("Level cleared!", (0.32 * width) as i32, 
+                    (0.3 * height) as i32, 18, Color::BLACK)
+        
+                },
+                PlayerState::Died => {
+                    draw_msg_box();
+                    handle.draw_text("You died", 3 * width as i32/ 10, 3 * height as i32 / 10, 18, Color::BLACK)
+                }, // need to implement this
+                PlayerState::Playing => {}
+            }
+    
+    }
+
+    pub fn update(&mut self, delta:f64, inputs:&[Input]){
+        self.level.update(delta, inputs);
+        match self.player.state{
+            PlayerState::Playing => {
+                self.player.update(delta, inputs);
+                let (row, col) = self.player.position;
+                match self.level.tiles.get(row,col){
+                    None => {self.player.state = PlayerState::Died}
+                    Some(tile) => {
+                        if tile.rhythm.as_ref().is_some() {
+                            if !tile.on(Level::WINDOW + 0.015).unwrap(){
+                                self.player.state = PlayerState::Died;
+                            } else if tile.goal {
+                                self.player.state = PlayerState::Cleared;
+                            }
+                        } 
+                    }
+                }
+            },
+            _ => {}
+        }   
+    }
+}
+
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Level {
@@ -210,8 +313,6 @@ pub struct Level {
     starting_location: Vector2,
     #[serde(skip)]
     pub player: Player,
-    #[serde(skip)]
-    pub state: PlayerState,
     // todo: add more features
 }
 
@@ -281,7 +382,6 @@ impl Level {
             row_gap,
             column_gap},
             player: Player::new((1,1),beat_length(duration), map_size, Level::WINDOW),
-            state: PlayerState::Playing,
             starting_location
         }
     }
@@ -296,81 +396,12 @@ impl Level {
             + (size + Vector2::one()) * vec2!(self.dimensions.row_gap,self.dimensions.column_gap)
     }
 
-    pub fn draw(&self, handle: &mut RaylibDrawHandle){
-        
-        for ((row,col), tile) in self.tiles.enumerate_column_major() {
-            let (x_tl,y_tl) = self.dimensions.top_left(row as i32, col as i32);
-            let (x_br, y_br) = self.dimensions.bottom_right(row as i32, col as i32);
-            handle.draw_rectangle(x_tl,y_tl,
-                x_br - x_tl,
-                y_br - y_tl,
-                tile.get_color()
-            );
-        }
-        let (player_x,player_y)  = self.dimensions.center(
-            self.player.position.0 as i32, self.player.position.1 as i32);
-        let player_radius = self.dimensions.tile_height as f32 * self.player.size() / 3.0;
-        handle.draw_circle(player_x, player_y, 
-            player_radius, Color::YELLOW);
-        
-
-        let (rows, columns) = self.size_tiles();
-        let height = (rows as i32) * self.dimensions.tile_height;
-        let width = (columns as i32) * self.dimensions.tile_width;
-        let (height, width) = (height as f64, width as f64);
-        let mut draw_msg_box = || {
-            handle.draw_rectangle(
-                (0.2 * width) as i32, 
-                (0.2 * height) as i32, 
-                (0.4 * width) as i32, 
-                (0.2 * height) as i32, Color::GRAY);
-        };
-
-        match self.state {
-            PlayerState::Cleared => {
-                draw_msg_box();
-                handle.draw_text("Level cleared!", (0.32 * width) as i32, 
-                (0.3 * height) as i32, 18, Color::BLACK)
-    
-            },
-            PlayerState::Died => {
-                draw_msg_box();
-                handle.draw_text("You died", 3 * width as i32/ 10, 3 * height as i32 / 10, 18, Color::BLACK)
-            }, // need to implement this
-            PlayerState::Playing => {}
-        }
-    }
-
 
     pub fn update(&mut self, delta: Sec, inputs: &[Input]){
         for tile in self.tiles.tiles.iter_mut(){
             tile.update(delta)
         }
-
-        match self.state {
-            PlayerState::Playing => {
-                self.player.update(delta, inputs);
-                let (row, col) = self.player.position;
-                match self.tiles.get(row,col){
-                    None => {self.state = PlayerState::Died}
-                    Some(tile) => {
-                        if let Some(_) = tile.rhythm.as_ref() {
-                            if !tile.on(Level::WINDOW + 0.015).unwrap(){
-                                self.state = PlayerState::Died;
-                            } else if tile.goal {
-                                self.state = PlayerState::Cleared;
-                            }
-                        } 
-                    }
-                }
-            },
-            _ => {}
-        }
     }
     
 }
 
-struct Camera {
-    fov: (usize,usize),
-    position: (usize,usize)
-}

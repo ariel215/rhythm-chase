@@ -58,12 +58,25 @@ impl Rhythm{
     }
 
     pub fn in_window(&self, window_size: Sec)-> bool {
-        if self.beats.contains(&0) && (self.length as f64 - self.position()) < (window_size / self.duration) {
-            return true
-        } 
-
         self.beats.iter().any(
-            |beat| ((*beat as f64) - self.position()).abs() < (window_size / self.duration)
+            |beat| {
+                let distance = (*beat as f64 - self.position()).abs();
+                f64::min(distance, self.length as f64 - distance) < window_size / self.duration
+            }
+        )
+    }
+
+    pub fn on_beat(self, window_size: Sec) -> bool {
+        self.beats.iter().any(
+            |beat| {
+                let beat = *beat as f64;
+                let window_rel = window_size / self.duration;
+                let start = (beat - window_rel) % self.length as f64;
+                let end = (beat + 1.0 + window_rel) % self.length as f64;
+                
+                (start <= self.position() && self.position() < end) || 
+                    (start > end && (start <= self.position() || self.position() < end))
+            }
         )
     }
 
@@ -76,7 +89,6 @@ impl Rhythm{
             time: 0.0
         }
     }
-
 }
 
 #[test]
@@ -97,12 +109,13 @@ fn test_rhythm(){
 #[test]
 fn rhythm_window(){
     let mut tr = Rhythm::new(2,120., vec![0]);
+    assert!((tr.duration-0.5) < 1e-6);
     assert!(tr.in_window(1e-6));
-    tr.update(0.04);
+    tr.time = 0.04;
     assert!(tr.in_window(0.05));
-    tr.update(0.5 );
+    tr.time = 0.54;
     assert!(!tr.in_window(0.05));
-    tr.update(0.5 );
+    tr.time = 0.96;
     assert!(tr.in_window(0.05));
 
 

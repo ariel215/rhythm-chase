@@ -19,3 +19,5 @@ pub fn get_inputs(rh: &mut raylib::RaylibHandle) -> Vec<Input> {
 
     inputs
 }
+
+
