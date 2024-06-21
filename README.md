@@ -17,15 +17,17 @@ Ideas:
 
 Systems: 
 - the big one: the music system
-  - global clock keeps steady beat
-  - matched to songs
-  - subdivisions i.e. patterns
-  - hookable triggers and durations
+  - global tempo matched to songs
+  - patterns
   - with wiggle room
 
-tiles / map
+tiles / map / drawing
+  - drawable things implement Draw
+  - tiles and the player are drawn in game space
+  - UI elements are drawn in window space
+
 
 - movement
   - on the global beat
 
-- text boxes etc
+

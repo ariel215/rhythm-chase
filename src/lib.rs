@@ -1,13 +1,11 @@
-use std::{collections::HashSet, default, hash::Hash, str::FromStr, usize};
 use inputs::Input;
-use mki::Keyboard;
 use raylib::prelude::*;
-use array2d::Array2D;
 use serde::*;
-use std::cmp::Eq;
+use tiles::{Tile, TileMap};
+use array2d::Array2D;
 
 
-// pub mod tiles;
+pub mod tiles;
 pub mod inputs;
 pub mod rhythm;
 use rhythm::*;
@@ -24,90 +22,7 @@ macro_rules! vec2 {
 
 }
 
-
-
-
-
-#[derive(Debug, Default, PartialEq, Clone,Serialize,Deserialize)]
-pub struct Tile {
-    color: Color, 
-    rhythm: Option<Rhythm>,
-    #[serde(default = "default_goal")]
-    goal: bool
-    // todo: add more features
-}
-
-fn default_goal()->bool{
-    false
-}
-
-impl Eq for Tile {}
-
-impl Hash for Tile {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.color.color_to_int().hash(state);
-        self.rhythm.hash(state);
-    }
-}
-
-impl Tile {
-    pub fn from(color: &Color, rhythm: Option<Rhythm> ) -> Self{
-        Tile {
-            color: *color,
-            rhythm,
-            ..Default::default()
-        }
-    }
-    pub fn update(&mut self, delta: Sec){
-        if let Some(rhythm) = &mut self.rhythm  {
-            rhythm.update(delta)
-        }
-    }
-
-    pub fn on(&self, window_size: Sec) -> Option<bool> {
-        self.rhythm.as_ref().map(|r|{
-            if r.on() {true}
-            else if r.in_window(window_size){ true} 
-            else {
-                let mut new_r = r.clone();
-                new_r.update(-1.0 * new_r.duration); // go back one beat
-                return new_r.in_window(window_size)
-            }
-        })
-    }
-
-    pub fn get_color(&self) -> Color {
-        match &self.rhythm {
-            None => self.color,
-            Some(tile_rhythm) => {
-                if tile_rhythm.on() {
-                    self.color
-                } else {
-                    Color::new(0, 0, 0, 0)
-                }
-            }
-        }
-    }
-}
-
-#[test]
-fn test_tile_on(){
-    let rhyth = Rhythm::new(2, 60.0, [0]);
-    let mut t = Tile{
-        color: Color::WHITE,
-        rhythm: Some(rhyth),
-        goal: false
-    };
-    assert!(t.on(0.015).unwrap());
-    t.rhythm.as_mut().map(|r| r.update(1.005));
-    assert!(t.on(0.015).unwrap());
-    t.rhythm.as_mut().map(|r| r.update(0.015));
-    assert!(!t.on(0.015).unwrap())
-
-
-}
-
-
+/// What states the player can be in
 #[derive(Debug, Default,Clone, Copy)]
 enum PlayerState {
     #[default]
@@ -117,12 +32,19 @@ enum PlayerState {
 }
 
 
+/// The player game object
 #[derive(Default,Debug, Clone)]
 pub struct Player{
+    /// where on the grid the player is 
     position: (usize, usize),
+    /// how big the player circle is 
     size: f32,
+    /// the rhythm the player pulses in
     rhythm: Rhythm,
+    /// how large the map is 
+    /// TODO: get this out of here
     map_size: (usize,usize),
+    /// How far around the beat you can move
     movement_window: Sec,
     last_moved: Option<f64>,
     state: PlayerState
@@ -161,12 +83,14 @@ impl Player {
         }
     }
 
+    /// How large the 
     pub fn size(&self) -> f32 {
         let t = self.rhythm.position().fract();
         let tween = 0.25 * (-1.0 * (8.0 * t).log2().powi(2)).exp() + 1.0;
         (tween * self.size as f64) as f32
     }
 
+    /// Movement
     pub fn move_(&mut self, direction: Vector2){
         let new_position = vec2!(self.position) + direction;
         if self.rhythm.in_window(self.movement_window) && (self.last_moved.is_none()) {
@@ -208,6 +132,8 @@ impl TileDimensions {
     }
 }
 
+
+/// Top-level data structure
 pub struct Game{
     level: Level,
     player: Player,
@@ -216,10 +142,7 @@ pub struct Game{
 
 impl Game {
 
-    pub fn new(level: Level, player: Option<Player>) -> Self {
-        let mut camera = Camera2D::default();
-        let player = player.unwrap_or_default();
-        camera.target = vec2!(player.position.0, player.position.1);
+    pub fn new(level: Level, player: Player, camera: Camera2D) -> Self {
         Self {
             level, 
             camera,
@@ -231,15 +154,22 @@ impl Game {
         self.level = new_level;
     }
 
+    pub fn try_draw(&self, handle: &mut RaylibDrawHandle){
+        let mut  handle = handle.begin_mode2D(self.camera);
+        handle.draw_rectangle(self.player.position.0 as i32,
+            self.player.position.1 as i32, 50, 50, Color::RED);
+    }
+
     pub fn draw(&self, handle: &mut RaylibDrawHandle){
             {
-                let mut mode2d = handle.begin_mode2D(self.camera);
-
+            let mut mode2d = handle.begin_mode2D(self.camera);
+            // let mode2d = handle;
                 for ((row,col), tile) in self.level.tiles.enumerate_column_major() {
                     let (x_tl,y_tl) = self.level.dimensions.top_left(row as i32, col as i32);
-                    let tile_rect = Rectangle::new(x, y, self.level.dimensions.tile_width as f32, self.level.dimensions.tile_height as f32);
-                    mode2d.draw_rectangle_rec(
-                        tile_rect,
+                    let (x_br, y_br) = self.level.dimensions.bottom_right(row as i32, col as i32);
+                    mode2d.draw_rectangle(x_tl,y_tl,
+                        x_br - x_tl,
+                        y_br - y_tl,
                         tile.get_color()
                     );
                 }
@@ -249,7 +179,6 @@ impl Game {
                 mode2d.draw_circle(player_x, player_y, 
                     player_radius, Color::YELLOW);
             }
-
         
             let (rows, columns) = self.level.size_tiles();
             let height = (rows as i32) * self.level.dimensions.tile_height;
@@ -266,8 +195,8 @@ impl Game {
             match self.player.state {
                 PlayerState::Cleared => {
                     draw_msg_box();
-                    handle.draw_text("Level cleared!", (0.32 * width) as i32, 
-                    (0.3 * height) as i32, 18, Color::BLACK)
+                    handle.draw_text("Level cleared!", 3 * width as i32/ 10, 
+                    3 * height as i32 * 10, 18, Color::BLACK)
         
                 },
                 PlayerState::Died => {
@@ -288,18 +217,36 @@ impl Game {
                 match self.level.tiles.get(row,col){
                     None => {self.player.state = PlayerState::Died}
                     Some(tile) => {
-                        if tile.rhythm.as_ref().is_some() {
-                            if !tile.on(Level::WINDOW + 0.015).unwrap(){
+                        if tile.goal {
+                            self.player.state = PlayerState::Cleared;
+                        } else if tile.rhythm.as_ref().is_some() {
+                            if !tile.on(Level::WINDOW + 0.1).unwrap(){
                                 self.player.state = PlayerState::Died;
-                            } else if tile.goal {
-                                self.player.state = PlayerState::Cleared;
                             }
                         } 
                     }
                 }
             },
+            PlayerState::Died=> {
+                if inputs.iter().any(|i|{
+                    matches!(i,Input::Key(KeyboardKey::KEY_R))
+                }){
+                    self.reset()
+                }
+            },
             _ => {}
-        }   
+        }
+    }
+
+    fn reset(&mut self) {
+        self.player.position = (self.level.starting_location.x as usize, self.level.starting_location.y as usize);
+        self.player.state = PlayerState::Playing;
+        self.player.rhythm.reset();
+        for t in self.level.tiles.iter_mut(){
+            if let Some(r) = t.rhythm.as_mut(){
+                r.reset();
+            }
+        }
     }
 }
 
@@ -308,7 +255,7 @@ impl Game {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Level {
     #[serde(flatten)]
-    pub tiles: TileMap,
+    pub tiles: tiles::TileMap,
     pub dimensions: TileDimensions,
     starting_location: Vector2,
     #[serde(skip)]
@@ -316,58 +263,6 @@ pub struct Level {
     // todo: add more features
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TileMap{
-    tiles: Vec<Tile>,
-    map: Array2D<usize>,
-}
-
-impl From<&Array2D<Tile>>for TileMap {
-    fn from(tiles: &Array2D<Tile>) -> Self {
-        let tileset: HashSet<_> = tiles.elements_row_major_iter().collect();
-        let tiles_with_indices: Vec<_> = tileset.into_iter().collect();
-        let tilemap = Array2D::from_iter_row_major(tiles.elements_row_major_iter().map(
-            |t | {
-                for (i,t1) in tiles_with_indices.iter().enumerate(){
-                    if &t == t1 {
-                        return i
-                    }
-                }
-                panic!()
-            }
-        ),
-        tiles.num_rows(),
-        tiles.num_columns()
-        ).unwrap();
-        Self {
-            tiles: tiles_with_indices.into_iter().cloned().collect(),
-            map: tilemap,
-        }
-    }
-}
-
-
-impl TileMap{
-    fn enumerate_column_major(&self) -> impl Iterator<Item=((usize,usize),&Tile)>{
-        self.map.enumerate_column_major().map(
-            |((r,c),idx)| ((r,c), &self.tiles[*idx])
-        )
-    }
-
-    fn indices_column_major(&self) -> impl Iterator<Item=(usize,usize)>{
-        self.map.indices_column_major()
-    }
-
-    fn get(&self, r: usize, c:usize) -> Option<&Tile>{
-        let idx = self.map.get(r,c);
-        idx.map(|i| &self.tiles[*i])
-    }
-
-    fn get_mut(&mut self, r: usize, c: usize) -> Option<&mut Tile>{
-        let idx = self.map.get(r,c);
-        idx.map(|i| &mut self.tiles[*i])
-    }
-}
 
 
 impl Level {
@@ -387,7 +282,7 @@ impl Level {
     }
 
     pub fn size_tiles(&self) -> (usize, usize) {
-        (self.tiles.map.num_rows(), self.tiles.map.num_columns())
+        (self.tiles.num_rows(), self.tiles.num_columns())
     }
 
     pub fn size_pixels(&self) -> Vector2 {
@@ -397,8 +292,8 @@ impl Level {
     }
 
 
-    pub fn update(&mut self, delta: Sec, inputs: &[Input]){
-        for tile in self.tiles.tiles.iter_mut(){
+    pub fn update(&mut self, delta: Sec, _inputs: &[Input]){
+        for tile in self.tiles.iter_mut(){
             tile.update(delta)
         }
     }

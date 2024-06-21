@@ -1,140 +1,157 @@
-use core::panic;
-use iset;
-use raylib::{color::Color, drawing::{RaylibDraw,RaylibDrawHandle}};
+use crate::rhythm::*;
+use std::{collections::HashSet,hash::Hash};
+use raylib::prelude::*;
 use serde::*;
-use std::hash::Hash;
+use array2d::Array2D;
 
-use crate::{TileDimensions, BPM};
 
-pub type Sec = f64;
-
-pub trait GameState {
-    fn update(&mut self, delta: Sec);
+#[derive(Debug, Default, PartialEq, Clone,Serialize,Deserialize)]
+pub struct Tile {
+    pub color: Color, 
+    pub rhythm: Option<Rhythm>,
+    #[serde(default = "default_goal")]
+    pub goal: bool
+    // todo: add more features?
 }
 
-pub trait GamePiece {
-    fn draw(&self, canvas: &mut RaylibDrawHandle);
-
-}
-type Fraction = f64;
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, PartialOrd)]
-pub struct Measure{
-    notes: iset::IntervalSet<Fraction>
+fn default_goal()->bool{
+    false
 }
 
-impl Measure {
-    pub fn is_on(&self, position: Fraction) -> bool {
-        self.notes.has_overlap(position..=position)
-    }
+impl Eq for Tile {}
 
-    pub fn add_note(&mut self, position: f64, duration: f64){
-        let end = position + duration;
-        if end <= 1. {
-            self.notes.insert(position..end);
-        } else {
-            panic!()
-        }
-    }
-
-    pub fn in_window(&self, position: Fraction, size: Fraction) -> bool {
-        let start = position - size;
-        let end  = position + size;
-        if self.notes.has_overlap(start..end){
-            return true;
-        }
-
-        if (end > 1. )&& self.notes.has_overlap(1.0-end..0. + f64::EPSILON) {
-            return true;
-        }
-        if start < 0.0 && self.notes.has_overlap(1.0+start..1.0 + f64::EPSILON){
-            return true;
-        }
-        return false;
+impl Hash for Tile {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.color.color_to_int().hash(state);
+        self.rhythm.hash(state);
     }
 }
 
+impl Tile {
+    pub fn from(color: &Color, rhythm: Option<Rhythm> ) -> Self{
+        Tile {
+            color: *color,
+            rhythm,
+            ..Default::default()
+        }
+    }
+    pub fn update(&mut self, delta: Sec){
+        if let Some(rhythm) = &mut self.rhythm  {
+            rhythm.update(delta)
+        }
+    }
+
+    pub fn on(&self, window_size: Sec) -> Option<bool> {
+        self.rhythm.as_ref().map(|r|{
+            if r.on() {true}
+            else if r.in_window(window_size){ true} 
+            else {
+                let mut new_r = r.clone();
+                new_r.update(-1.0 * new_r.duration); // go back one beat
+                return new_r.in_window(window_size)
+            }
+        })
+    }
+
+    pub fn get_color(&self) -> Color {
+        match &self.rhythm {
+            None => self.color,
+            Some(tile_rhythm) => {
+                if tile_rhythm.on() {
+                    self.color
+                } else {
+                    Color::new(0, 0, 0, 0)
+                }
+            }
+        }
+    }
+}
 
 #[test]
-fn test_measure(){
-    let mut m = Measure::default();
-    m.add_note(0.0, 0.5);
-    assert!(m.is_on(0.25));
-    assert!(m.in_window(0.05, 0.05));
-    assert!(m.in_window(0.975, 0.05));
-    
-    let mut m = Measure::default();
-    m.add_note(0.5, 0.49);
-    assert!(m.in_window(0.475, 0.05))
+fn test_tile_on(){
+    let rhyth = Rhythm::new(2, 60.0, [0]);
+    let mut t = Tile{
+        color: Color::WHITE,
+        rhythm: Some(rhyth),
+        goal: false
+    };
+    assert!(t.on(0.015).unwrap());
+    t.rhythm.as_mut().map(|r| r.update(1.005));
+    assert!(t.on(0.015).unwrap());
+    t.rhythm.as_mut().map(|r| r.update(0.015));
+    assert!(!t.on(0.015).unwrap())
+
+
 }
 
-
-// Struct representing a single repeated rhythmic pattern
-#[derive(Debug,Clone,Deserialize,Serialize, PartialEq, PartialOrd)]
-pub struct Rhythm {
-    pub len: Sec,
-    pub beats: Measure,
-    #[serde(skip)]
-    time: Sec
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TileMap{
+    tiles: Vec<Tile>,
+    map: Array2D<usize>,
 }
 
-impl GameState for Rhythm{
-    fn update(&mut self, delta: Sec) {
-        self.time += delta;
-        self.time %= self.len
-    }
-}
-
-impl Rhythm{
-
-    pub fn on(&self) -> bool {
-        self.beats.is_on(self.position())
-    }
-
-    pub fn position(&self) -> f64 {
-        self.time / self.len
-    }
-
-    pub fn in_window(&self, window_size: Sec)-> bool {
-        self.beats.in_window(self.position(), window_size)
-    }
-
-    pub fn new(length: Sec, beats: Measure) -> Self {
+impl From<&Array2D<Tile>>for TileMap {
+    fn from(tiles: &Array2D<Tile>) -> Self {
+        let tileset: HashSet<_> = tiles.elements_row_major_iter().collect();
+        let tiles_with_indices: Vec<_> = tileset.into_iter().collect();
+        let tilemap = Array2D::from_iter_row_major(tiles.elements_row_major_iter().map(
+            |t | {
+                for (i,t1) in tiles_with_indices.iter().enumerate(){
+                    if &t == t1 {
+                        return i
+                    }
+                }
+                panic!()
+            }
+        ),
+        tiles.num_rows(),
+        tiles.num_columns()
+        ).unwrap();
         Self {
-            len: length,
-            beats,
-            time:0.0
+            tiles: tiles_with_indices.into_iter().cloned().collect(),
+            map: tilemap,
         }
     }
 }
 
-#[derive(Debug,Clone,Serialize,Deserialize)]
-pub struct Tile {
-    rhythm: Rhythm,
-    position: (usize,usize),
-    color: Color,
-    #[serde(skip)]
-    dimensions: Option<std::rc::Rc<TileDimensions>>
-}
 
-impl GameState for Tile {
-    fn update(&mut self, delta: Sec) {
-        self.rhythm.update(delta)
+impl TileMap{
+
+    pub fn enumerate_column_major(&self) -> impl Iterator<Item=((usize,usize),&Tile)>{
+        self.map.enumerate_column_major().map(
+            |((r,c),idx)| ((r,c), &self.tiles[*idx])
+        )
     }
-}
 
-impl GamePiece for Tile {
-    fn draw(&self, canvas: &mut RaylibDrawHandle) {
-        if let Some(dims) = &self.dimensions {
-            let (row,col) = self.position;
-            let (x_tl,y_tl) = dims.top_left(row as i32, col as i32);
-            let (x_br, y_br) = dims.bottom_right(row as i32, col as i32);
-            canvas.draw_rectangle(x_tl,y_tl,
-                x_br - x_tl,
-                y_br - y_tl,
-                self.color
-            );
-
-        }
+    pub fn indices_column_major(&self) -> impl Iterator<Item=(usize,usize)>{
+        self.map.indices_column_major()
     }
+
+    pub fn get(&self, r: usize, c:usize) -> Option<&Tile>{
+        let idx = self.map.get(r,c);
+        idx.map(|i| &self.tiles[*i])
+    }
+
+    pub fn get_mut(&mut self, r: usize, c: usize) -> Option<&mut Tile>{
+        let idx = self.map.get(r,c);
+        idx.map(|i| &mut self.tiles[*i])
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Tile>{
+        self.tiles.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut Tile>{
+        self.tiles.iter_mut()
+    }
+
+
+    pub fn num_rows(&self)->usize{
+        self.map.num_rows()
+    }
+
+    pub fn num_columns(&self) -> usize{
+        self.map.num_columns()
+    }
+
 }

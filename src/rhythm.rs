@@ -44,6 +44,9 @@ impl Rhythm{
         self.time += delta;
         self.time %= self.duration * self.length as Sec;
     }
+    pub fn reset(&mut self){
+        self.time = 0.0;
+    }
 
     pub fn on(&self) -> bool {
         self.beats.contains(& (self.position().trunc() as usize))

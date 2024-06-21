@@ -60,7 +60,13 @@ fn main() -> Result<(), Error>{
 
     let level: Level = serde_json::from_reader(io::BufReader::new( json))?;
     let player = Player::new((0,0), 120., level.size_tiles(), 0.15);
-    let mut game = Game::new(level,Some(player));
+    let camera = Camera2D{
+        offset: Vector2 { x: (w/2) as f32, y: (h / 2) as f32 },
+        target: Vector2 {x: (w/2) as f32, y: (h/2) as f32},
+        rotation: 0.0,
+        zoom: 1.0
+    };
+    let mut game = Game::new(level,player, camera);
     let mut time = SystemTime::now();
     while !rl.window_should_close() {
         let duration = SystemTime::now().duration_since(time).unwrap();
@@ -69,7 +75,8 @@ fn main() -> Result<(), Error>{
         game.update(duration.as_secs_f64(), &inputs);
         {
             let mut d: RaylibDrawHandle = rl.begin_drawing(&thread);
-            game.draw(&mut d)
+            d.clear_background(Color::WHITE);
+            game.draw(&mut d);
         }
     }
     Ok(())
