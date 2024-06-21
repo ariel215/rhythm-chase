@@ -17,6 +17,7 @@ pub struct Rhythm {
     /// which beats to play; zero-indexed
     pub beats: HashSet<usize>,
     /// Length of a beat, in seconds
+    #[serde(skip)]
     pub duration: Sec,
     /// the current time within the measure
     #[serde(skip)]
@@ -40,6 +41,11 @@ impl Hash for Rhythm{
 }
 
 impl Rhythm{
+
+    pub fn set_tempo(&mut self, tempo: BPM){
+        self.duration = beat_length(tempo)
+    }
+
     pub fn update(&mut self, delta: Sec){
         self.time += delta;
         self.time %= self.duration * self.length as Sec;
@@ -69,7 +75,7 @@ impl Rhythm{
         )
     }
 
-    pub fn on_beat(self, window_size: Sec) -> bool {
+    pub fn on_beat(&self, window_size: Sec) -> bool {
         self.beats.iter().any(
             |beat| {
                 let beat = *beat as f64;

@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+
 use inputs::Input;
 use raylib::prelude::*;
 use serde::*;
@@ -142,7 +144,8 @@ pub struct Game{
 
 impl Game {
 
-    pub fn new(level: Level, player: Player, camera: Camera2D) -> Self {
+    pub fn new(level: Level, mut player: Player, camera: Camera2D) -> Self {
+        player.position = level.starting_location;
         Self {
             level, 
             camera,
@@ -239,7 +242,7 @@ impl Game {
     }
 
     fn reset(&mut self) {
-        self.player.position = (self.level.starting_location.x as usize, self.level.starting_location.y as usize);
+        self.player.position = self.level.starting_location;
         self.player.state = PlayerState::Playing;
         self.player.rhythm.reset();
         for t in self.level.tiles.iter_mut(){
@@ -257,27 +260,33 @@ pub struct Level {
     #[serde(flatten)]
     pub tiles: tiles::TileMap,
     pub dimensions: TileDimensions,
-    starting_location: Vector2,
-    #[serde(skip)]
-    pub player: Player,
-    // todo: add more features
+    pub starting_location: (usize, usize),
+    pub tempo: BPM,
 }
 
 
 
 impl Level {
     const WINDOW: f64 = 0.05;
-    pub fn new(tiles: Array2D<Tile>, tile_width: i32, tile_height: i32, row_gap: i32, column_gap: i32, starting_location: Vector2) -> Self{
-        let duration = tiles.get_column_major(0).as_ref().and_then(|t| t.rhythm.as_ref()).map(|tr| tr.duration).unwrap_or(0.);
-        let map_size = (tiles.row_len(), tiles.column_len());
+    pub fn new(mut tiles: Array2D<Tile>, tile_width: i32, tile_height: i32, row_gap: i32, column_gap: i32, starting_location: (usize, usize), tempo: BPM) -> Self{
+        for i in 0..tiles.num_rows() {
+            for j in 0..tiles.num_columns(){
+                if let Some(tile) = tiles.get_mut(i, j){
+                    if let Some(rhythm) = &mut tile.rhythm{
+                        rhythm.set_tempo(tempo);
+                    }
+                }
+            }
+        }
+
         Level {
             tiles: <&Array2D<Tile> as Into<TileMap>>::into(&tiles),
             dimensions: TileDimensions {tile_width,
             tile_height,
             row_gap,
             column_gap},
-            player: Player::new((1,1),beat_length(duration), map_size, Level::WINDOW),
-            starting_location
+            starting_location,
+            tempo: tempo
         }
     }
 

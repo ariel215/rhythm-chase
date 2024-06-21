@@ -43,13 +43,7 @@ impl Tile {
 
     pub fn on(&self, window_size: Sec) -> Option<bool> {
         self.rhythm.as_ref().map(|r|{
-            if r.on() {true}
-            else if r.in_window(window_size){ true} 
-            else {
-                let mut new_r = r.clone();
-                new_r.update(-1.0 * new_r.duration); // go back one beat
-                return new_r.in_window(window_size)
-            }
+            r.on_beat(window_size)
         })
     }
 
