@@ -11,18 +11,8 @@ pub mod tiles;
 pub mod inputs;
 pub mod rhythm;
 use rhythm::*;
-
-
-macro_rules! vec2 {
-    ($pair: expr) => {
-        Vector2 {x:($pair).0 as f32, y:($pair).1 as f32}
-    };
-
-    ($x:expr, $y:expr) => {
-        Vector2 {x:($x) as f32, y:($y) as f32}
-    };
-
-}
+pub mod ecs;
+mod macros;
 
 /// What states the player can be in
 #[derive(Debug, Default,Clone, Copy)]
@@ -41,11 +31,6 @@ pub struct Player{
     position: (usize, usize),
     /// how big the player circle is 
     size: f32,
-    /// the rhythm the player pulses in
-    rhythm: Rhythm,
-    /// how large the map is 
-    /// TODO: get this out of here
-    map_size: (usize,usize),
     /// How far around the beat you can move
     movement_window: Sec,
     last_moved: Option<f64>,
@@ -53,11 +38,10 @@ pub struct Player{
 }
 
 impl Player {
+    const COLOR: Color = Color::YELLOW;
 
     pub fn new(position: (usize, usize), tempo: BPM, map_size: (usize,usize), window: Sec) -> Self{
         Self {position,size: 1.0,
-            rhythm: Rhythm::new(1,tempo,[0]),
-            map_size,
             movement_window: window,
             last_moved: None,
             ..Default::default()
@@ -65,7 +49,6 @@ impl Player {
     }
 
     pub fn update(&mut self, delta: Sec, inputs: &[Input]){
-        self.rhythm.update(delta);
         for inpt in inputs.iter() {
             if let Input::Key(k) = inpt{
                 let direction = match k {
@@ -155,12 +138,6 @@ impl Game {
 
     pub fn set_level(&mut self, new_level: Level){
         self.level = new_level;
-    }
-
-    pub fn try_draw(&self, handle: &mut RaylibDrawHandle){
-        let mut  handle = handle.begin_mode2D(self.camera);
-        handle.draw_rectangle(self.player.position.0 as i32,
-            self.player.position.1 as i32, 50, 50, Color::RED);
     }
 
     pub fn draw(&self, handle: &mut RaylibDrawHandle){

@@ -132,13 +132,12 @@ impl TileMap{
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Tile>{
-        self.tiles.iter()
+        self.map.elements_column_major_iter().map(|idx| &self.tiles[*idx])
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut Tile>{
-        self.tiles.iter_mut()
+        self.map.elements_column_major_iter().map(|idx| &mut self.tiles[*idx])
     }
-
 
     pub fn num_rows(&self)->usize{
         self.map.num_rows()
@@ -146,6 +145,6 @@ impl TileMap{
 
     pub fn num_columns(&self) -> usize{
         self.map.num_columns()
-    }
+    } 
 
 }
