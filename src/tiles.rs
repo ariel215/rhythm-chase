@@ -1,5 +1,5 @@
 use crate::{rhythm::*, vec2};
-use std::{collections::HashSet,hash::Hash};
+use std::{cmp::min, collections::HashSet, hash::Hash};
 use raylib::prelude::*;
 use serde::*;
 use array2d::Array2D;
@@ -146,3 +146,37 @@ impl TileMap{
     } 
 
 }
+
+
+
+#[derive(Debug,Serialize,Deserialize)]
+pub struct TileDimensions {
+    pub tile_width: i32,
+    pub tile_height: i32,
+    pub row_gap: i32,
+    pub column_gap: i32,
+}
+
+impl TileDimensions {
+    pub fn top_left(&self, x: i32, y: i32) -> (i32,i32){
+        (
+            x * (self.tile_width + self.row_gap),
+            y * (self.tile_height + self.column_gap)
+        )
+    }
+
+    pub fn bottom_right(&self, x:i32, y: i32) -> (i32,i32){
+        ((x+1) * self.tile_width - self.row_gap,
+         (y+1) * self.tile_height - self.column_gap)
+    }
+
+    pub fn center(&self, x: i32, y: i32) -> (i32, i32) {
+        let (xtl, ytl) = self.top_left(x, y);
+        (xtl + (self.tile_width - self.row_gap) / 2, ytl + (self.tile_height - self.column_gap) / 2)
+    }
+
+    pub fn min(&self) -> i32 {
+        min(self.tile_width, self.tile_height)
+    }
+}
+

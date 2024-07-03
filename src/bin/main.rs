@@ -64,21 +64,21 @@ fn main() -> Result<(), Error>{
     // let json = std::fs::File::open("maps/bigmap.json")?;
 
     // let level: Level = serde_json::from_reader(io::BufReader::new( json))?;
-    let player = Player::new(0.15);
+    let player = ecs::Player::new(0.15);
     let camera = Camera2D{
         offset: Vector2 { x: (w/2) as f32, y: (h / 2) as f32 },
         target: Vector2 {x: (w/2) as f32, y: (h/2) as f32},
         rotation: 0.0,
         zoom: 1.0
     };
-    let dimensions = TileDimensions{
+    let dimensions = tiles::TileDimensions{
             tile_width: 80,
-            tile_height: 60,
+            tile_height: 80,
             row_gap: 6,
             column_gap: 6
     };
     
-    let mut game = ecs::Game::new(120.0, dimensions);
+    let mut game = Game::new(120.0, dimensions);
     game.load_map("maps/begin.json")?;
     game.add_player(player);
     game.add_camera(camera);

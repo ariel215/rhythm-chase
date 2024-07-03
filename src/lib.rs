@@ -1,86 +1,111 @@
-use std::borrow::BorrowMut;
-
+use std::io;
 use inputs::Input;
 use raylib::prelude::*;
-use serde::*;
-use tiles::{Tile, TileMap};
-use array2d::Array2D;
-
 
 pub mod tiles;
 pub mod inputs;
 pub mod rhythm;
-use rhythm::*;
 pub mod ecs;
+
+use crate::{rhythm::*, ecs::*, tiles::*};
+
 mod macros;
 
-/// What states the player can be in
-#[derive(Debug, Default,Clone, Copy)]
-enum PlayerState {
-    #[default]
-    Playing,
-    Cleared,
-    Died
-}
-
-
-/// The player game object
-#[derive(Default,Debug, Clone)]
-pub struct Player{
-    /// how big the player circle is 
-    size: f64,
-    /// How far around the beat you can move
-    movement_window: Sec,
-    last_moved: Option<f64>,
-    state: PlayerState
-}
-
-impl Player {
-    const COLOR: Color = Color::YELLOW;
-
-    pub fn new(window: Sec) -> Self{
-        Self {
-            size: 1.0,
-            movement_window: window,
-            last_moved: None,
-            ..Default::default()
-        }
-    }
-}
-
-
-#[derive(Debug,Serialize,Deserialize)]
-pub struct TileDimensions {
-    pub tile_width: i32,
-    pub tile_height: i32,
-    pub row_gap: i32,
-    pub column_gap: i32,
-}
-
-impl TileDimensions {
-    pub fn top_left(&self, x: i32, y: i32) -> (i32,i32){
-        (x * self.tile_width + self.row_gap / 2,
-         y * self.tile_height + self.column_gap / 2)
-    }
-
-    pub fn bottom_right(&self, x:i32, y: i32) -> (i32,i32){
-        ((x+1) * self.tile_width - self.row_gap,
-         (y+1) * self.tile_height - self.column_gap)
-    }
-
-    pub fn center(&self, x: i32, y: i32) -> (i32, i32) {
-        let (xtl, ytl) = self.top_left(x, y);
-        (xtl + (self.tile_width - self.row_gap) / 2, ytl + (self.tile_height - self.column_gap) / 2)
-    }
-}
 
 
 // /// Top-level data structure
-// pub struct Game{
-//     level: Level,
-//     player: Player,
-//     camera: Camera2D
-// }
+pub struct Game{
+    components: Components,
+    dimensions: Option<TileDimensions>,
+    map: Option<TileMap>,
+    tempo: rhythm::BPM,
+    camera: Option<Camera2D>
+}
+
+impl Game{
+
+    pub fn new(tempo: BPM, tile_dimensions: TileDimensions)->Self{
+        Self{
+            tempo,
+            components: Components::default(),
+            dimensions: Some(tile_dimensions),
+            map: None,
+            camera: None
+        }
+    }
+
+    fn clear_map(&mut self){
+        for (position, rhythm, _player, tile,area) in self.components.tie_mut(){
+                if tile.is_some(){
+                    *position = Position::default();
+                    *rhythm = None;
+                    *area = None;
+                    *tile = None;        
+                }
+        }
+    }
+
+
+    pub fn load_map(&mut self, map: &str)->io::Result<()>{
+        if self.map.is_some(){
+            self.clear_map();
+        }
+
+        let dimensions = self.dimensions.as_ref().ok_or(std::io::Error::other("no dimensions"))?;
+        if self.tempo == 0.0 {return Result::Err(std::io::Error::other("no tempo"));}
+
+        let map_file = std::fs::File::open(map)?;
+        let map: TileMap = serde_json::from_reader(io::BufReader::new(map_file))?;
+        for ((r,c), tile ) in map.enumerate_column_major(){
+            let entity = self.components.new_entity();
+            let position = vec2!(dimensions.top_left(r as i32, c as i32));
+            dbg!(position);
+            self.components.positions[entity.0] = Position(position);
+            self.components.tiles[entity.0] = Some(tile.clone());
+            let rhythm = tile.rhythm.clone().map(|mut rh| {
+                rh.set_tempo(self.tempo); rh});
+            self.components.rhythms[entity.0] = rhythm;
+        }
+        self.map = Some(map);
+        Ok(())
+    }
+
+    pub fn add_player(&mut self, player: Player)->Option<Entity>{
+        if let (Some(map), Some(dimensions)) = (&self.map, &self.dimensions){
+            let player_ent = self.components.new_entity();
+            self.components.players[player_ent.0] = Some(player);
+            self.components.positions[player_ent.0] = Position(
+                vec2!(dimensions.center(map.starting_location.x as i32, map.starting_location.y as i32))
+            );
+            self.components.rhythms[player_ent.0] = Some(Rhythm::new(1, self.tempo, [0]));
+            Some(player_ent)
+        } else { None }
+    }
+
+
+    pub fn add_camera(&mut self, camera: Camera2D){
+        self.camera = Some(camera);
+    }
+
+    pub fn set_tempo(&mut self, bpm: BPM){
+        self.tempo = bpm;
+    }
+
+    pub fn update(&mut self, delta_t: Sec, inputs: &[Input]){
+        update_rhythms(&mut self.components, delta_t);
+        update_players(&mut self.components,self.dimensions.as_ref().unwrap(), delta_t,inputs);
+    }
+
+    pub fn draw<T: RaylibDraw>(&self, handle: &mut T)->std::result::Result<(),()>{
+        let mut handle2d = handle.begin_mode2D(self.camera.ok_or(())?);
+        let dimensions = self.dimensions.as_ref().ok_or(())?;
+        draw_tiles(&self.components, dimensions, &mut handle2d);
+        draw_player(&self.components, dimensions,&mut handle2d);
+        Ok(())
+    }
+
+}
+
 
 // impl Game {
 
@@ -186,60 +211,3 @@ impl TileDimensions {
 //         }
 //     }
 // }
-
-
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Level {
-    #[serde(flatten)]
-    pub tiles: tiles::TileMap,
-    pub dimensions: TileDimensions,
-    pub starting_location: (usize, usize),
-    pub tempo: BPM,
-}
-
-
-
-impl Level {
-    const WINDOW: f64 = 0.05;
-    pub fn new(mut tiles: Array2D<Tile>, tile_width: i32, tile_height: i32, row_gap: i32, column_gap: i32, starting_location: (usize, usize), tempo: BPM) -> Self{
-        for i in 0..tiles.num_rows() {
-            for j in 0..tiles.num_columns(){
-                if let Some(tile) = tiles.get_mut(i, j){
-                    if let Some(rhythm) = &mut tile.rhythm{
-                        rhythm.set_tempo(tempo);
-                    }
-                }
-            }
-        }
-
-        Level {
-            tiles: <&Array2D<Tile> as Into<TileMap>>::into(&tiles),
-            dimensions: TileDimensions {tile_width,
-            tile_height,
-            row_gap,
-            column_gap},
-            starting_location,
-            tempo: tempo
-        }
-    }
-
-    pub fn size_tiles(&self) -> (usize, usize) {
-        (self.tiles.num_rows(), self.tiles.num_columns())
-    }
-
-    pub fn size_pixels(&self) -> Vector2 {
-        let size = vec2!(self.size_tiles());
-        size * vec2!(self.dimensions.tile_height, self.dimensions.tile_width) 
-            + (size + Vector2::one()) * vec2!(self.dimensions.row_gap,self.dimensions.column_gap)
-    }
-
-
-    // pub fn update(&mut self, delta: Sec, _inputs: &[Input]){
-    //     for tile in self.tiles.iter_mut(){
-    //         tile.update(delta)
-    //     }
-    // }
-    
-}
-
