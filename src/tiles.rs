@@ -1,4 +1,4 @@
-use crate::rhythm::*;
+use crate::{rhythm::*, vec2};
 use std::{collections::HashSet,hash::Hash};
 use raylib::prelude::*;
 use serde::*;
@@ -82,6 +82,7 @@ fn test_tile_on(){
 pub struct TileMap{
     tiles: Vec<Tile>,
     map: Array2D<usize>,
+    pub starting_location: Vector2
 }
 
 impl From<&Array2D<Tile>>for TileMap {
@@ -104,6 +105,7 @@ impl From<&Array2D<Tile>>for TileMap {
         Self {
             tiles: tiles_with_indices.into_iter().cloned().collect(),
             map: tilemap,
+            starting_location: vec2!((0,0))
         }
     }
 }
@@ -133,10 +135,6 @@ impl TileMap{
 
     pub fn iter(&self) -> impl Iterator<Item = &Tile>{
         self.map.elements_column_major_iter().map(|idx| &self.tiles[*idx])
-    }
-
-    pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut Tile>{
-        self.map.elements_column_major_iter().map(|idx| &mut self.tiles[*idx])
     }
 
     pub fn num_rows(&self)->usize{

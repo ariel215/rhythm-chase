@@ -3,11 +3,13 @@ use raylib::prelude::*;
 use std::{io, time::*};
 use rhythm_chase::*;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum Error{
     Array2D(array2d::Error),
     IO(std::io::Error),
-    Json(serde_json::Error)
+    Json(serde_json::Error),
+    #[default]
+    Other,
 }
 
 impl  From<array2d::Error> for Error {
@@ -27,6 +29,9 @@ impl From<serde_json::Error> for Error {
         Self::Json(value)
     }
 }
+
+
+
 
 
 fn main() -> Result<(), Error>{
@@ -56,27 +61,39 @@ fn main() -> Result<(), Error>{
     // let json  = std::fs::File::create("level.json")?;
     // serde_json::to_writer_pretty(json, &level)?;
     
-    let json = std::fs::File::open("maps/bigmap.json")?;
+    // let json = std::fs::File::open("maps/bigmap.json")?;
 
-    let level: Level = serde_json::from_reader(io::BufReader::new( json))?;
-    let player = Player::new((0,0), 120., level.size_tiles(), 0.15);
+    // let level: Level = serde_json::from_reader(io::BufReader::new( json))?;
+    let player = Player::new(0.15);
     let camera = Camera2D{
         offset: Vector2 { x: (w/2) as f32, y: (h / 2) as f32 },
         target: Vector2 {x: (w/2) as f32, y: (h/2) as f32},
         rotation: 0.0,
         zoom: 1.0
     };
-    let mut game = Game::new(level,player, camera);
+    let dimensions = TileDimensions{
+            tile_width: 80,
+            tile_height: 60,
+            row_gap: 6,
+            column_gap: 6
+    };
+    
+    let mut game = ecs::Game::new(120.0, dimensions);
+    game.load_map("maps/begin.json")?;
+    game.add_player(player);
+    game.add_camera(camera);
     let mut time = SystemTime::now();
     while !rl.window_should_close() {
         let duration = SystemTime::now().duration_since(time).unwrap();
         time = SystemTime::now();
-        let inputs = rhythm_chase::inputs::get_inputs(&mut rl);
+        let inputs: Vec<inputs::Input> = rhythm_chase::inputs::get_inputs(&mut rl);
         game.update(duration.as_secs_f64(), &inputs);
         {
             let mut d: RaylibDrawHandle = rl.begin_drawing(&thread);
             d.clear_background(Color::WHITE);
-            game.draw(&mut d);
+            if game.draw(&mut d).is_err(){
+                return Result::Err(Error::Other)
+            }
         }
     }
     Ok(())

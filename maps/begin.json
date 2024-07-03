@@ -32,7 +32,6 @@
             },
             "rhythm": {
                 "length": 2,
-                "duration": 0.5,
                 "beats": [0]
             }
         },
@@ -45,7 +44,6 @@
             },
             "rhythm": {
                 "length": 2,
-                "duration": 0.5,
                 "beats": [1]
             }
         },
@@ -69,11 +67,5 @@
             "goal": true
         }
     ],
-    "dimensions": {
-        "tile_width": 80,
-        "tile_height": 60,
-        "row_gap": 6,
-        "column_gap": 6
-    },
     "starting_location": [0,3]
 }

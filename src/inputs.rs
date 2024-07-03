@@ -1,5 +1,6 @@
 use raylib;
 
+
 pub type Location = (i32,i32);
 
 pub enum Input{
@@ -7,6 +8,11 @@ pub enum Input{
     Selection(Location)
 }
 
+#[derive(Hash, PartialEq, Eq)]
+pub enum InputKind{
+    Key,
+    Selection
+}
 
 pub fn get_inputs(rh: &mut raylib::RaylibHandle) -> Vec<Input> {
     let mut inputs = vec!();
@@ -16,8 +22,5 @@ pub fn get_inputs(rh: &mut raylib::RaylibHandle) -> Vec<Input> {
     if rh.is_mouse_button_pressed(raylib::consts::MouseButton::MOUSE_LEFT_BUTTON){
         inputs.push(Input::Selection((rh.get_mouse_x(),rh.get_mouse_y())));
     }
-
     inputs
 }
-
-
