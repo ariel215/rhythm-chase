@@ -123,18 +123,6 @@ fn ifind_mut<T>(elts: &mut [Option<T>])-> impl Iterator<Item = (usize, &mut T)>{
 }
 
 
-pub fn move_player(components: &mut Components, player_entity: Entity, direction: Position){
-    let player = components.players[player_entity.0].as_ref().unwrap();
-    match &components.rhythms[player_entity.0]{
-        Some(rhythm) => {
-            if rhythm.in_window(player.movement_window){
-                components.positions[player_entity.0].0 += direction.0;
-            }
-        },
-        None => {components.positions[player_entity.0].0 += direction.0;}
-    }
-}
-
 fn get_tile_color(tile: &Tile, rhythm: &Option<Rhythm>)->Color{
     match rhythm {
         Some(rhythm) => {
@@ -190,8 +178,10 @@ pub fn update_players(components: &mut Components, dimensions: &TileDimensions, 
         let position = &mut components.positions[entity];
         let t = rhythm.position().fract();
         player.size =  0.25 * (-1.0 * (8.0 * t).log2().powi(2)).exp() + 1.0;
-        for direction in directions.iter() {
-            position.0 += *direction;
+        if rhythm.in_window(player.movement_window){
+            for direction in directions.iter() {
+                position.0 += *direction;
+            }    
         }
     }
 }
