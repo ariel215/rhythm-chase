@@ -75,5 +75,6 @@
         "row_gap": 6,
         "column_gap": 6
     },
-    "starting_location": [0,3]
+    "starting_location": [0,0],
+    "tempo": 120.0
 }

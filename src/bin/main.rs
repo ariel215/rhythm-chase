@@ -3,33 +3,9 @@ use raylib::prelude::*;
 use std::{io, time::*};
 use rhythm_chase::*;
 
-#[derive(Debug)]
-enum Error{
-    Array2D(array2d::Error),
-    IO(std::io::Error),
-    Json(serde_json::Error)
-}
-
-impl  From<array2d::Error> for Error {
-    fn from(value: array2d::Error) -> Self {
-        Error::Array2D(value)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(value: io::Error) -> Self {
-        Self::IO(value)
-    }
-}
-
-impl From<serde_json::Error> for Error {
-    fn from(value: serde_json::Error) -> Self {
-        Self::Json(value)
-    }
-}
 
 
-fn main() -> Result<(), Error>{
+fn main() -> Result<(), rhythm_chase::RCError>{
     let (w,h): (i32,i32) = (640,480);
     let (mut rl, thread) = raylib::init()
         .size(w,h)
@@ -56,17 +32,15 @@ fn main() -> Result<(), Error>{
     // let json  = std::fs::File::create("level.json")?;
     // serde_json::to_writer_pretty(json, &level)?;
     
-    let json = std::fs::File::open("maps/bigmap.json")?;
-
-    let level: Level = serde_json::from_reader(io::BufReader::new( json))?;
-    let player = Player::new((0,0), 120., level.size_tiles(), 0.15);
+    let dimensions = TileDimensions{tile_width: 80,tile_height: 80,row_gap: 3, column_gap: 3};
     let camera = Camera2D{
         offset: Vector2 { x: (w/2) as f32, y: (h / 2) as f32 },
-        target: Vector2 {x: (w/2) as f32, y: (h/2) as f32},
+        target: Vector2 {x: (w/2) as f32, y: (h /2) as f32},
         rotation: 0.0,
         zoom: 1.0
     };
-    let mut game = Game::new(level,player, camera);
+    let mut game = Game::new(camera, dimensions);
+    game.load_level("maps/begin.json")?;
     let mut time = SystemTime::now();
     while !rl.window_should_close() {
         let duration = SystemTime::now().duration_since(time).unwrap();
