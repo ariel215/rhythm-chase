@@ -1,5 +1,7 @@
 use std::ffi::{CStr, CString};
-use drawing::RaylibDraw;
+use std::time;
+use camera::Camera2D;
+use drawing::{RaylibDraw, RaylibMode2DExt};
 use inputs::Location;
 use math::Rectangle;
 use rhythm_chase::*;
@@ -8,9 +10,14 @@ use raylib::rgui::RaylibDrawGui;
 
 mod editor{
 
-    use raylib::{color::{self, Color}, drawing::RaylibDraw, ffi::Rectangle, rgui};
+    use raylib::{camera::Camera2D, color::{self, Color}, drawing::{RaylibDraw, RaylibDrawHandle, RaylibMode2DExt}, ffi::Rectangle, rgui, RaylibHandle, RaylibThread};
     use rhythm_chase::{inputs::Location, rhythm::{self, Rhythm}, tiles::Tile};
 
+
+    pub(crate) struct RaylibContext{
+        pub handle: RaylibHandle,
+        pub thread: RaylibThread
+    }
 
     enum EditorWindow{
         Rhythm(RhythmEditor),
@@ -76,23 +83,41 @@ mod editor{
             }
             todo!();
         }
+        
+        pub(crate) fn new() -> Self {
+            Self { 
+                rhythm_editor: None, color_picker: None, text_editor: None, current_window: None }
+        }
+    }
 
 
-        pub fn draw<T: RaylibDraw>(&self, handle: &mut T){
-            self.draw_grid(handle);
-            match self.current_window.as_ref() {
-                Some(EditorWindow::Rhythm(editor))=> {editor.draw(handle)},
-                Some(EditorWindow::Color(picker)) => {picker.draw(handle)},
-                Some(EditorWindow::Text(text_editor)) => {text_editor.draw(handle)},
-                None => {()}
+
+    pub fn draw_window(ctx: &mut RaylibContext, camera: &Camera2D, tile_editor: &TileEditor){
+        let mut handle = ctx.handle.begin_drawing(&ctx.thread);
+        handle.clear_background(color::Color::WHITE);
+
+        {
+            let mut handle = handle.begin_mode2D(camera);
+            // draw grid
+            for step in (-2000..2000).step_by(50){
+                handle.draw_line(step, 2000, step, -1000, Color::BLACK);
+                handle.draw_line(-2000,step, 2000, step, Color::BLACK);
             }
-            todo!()
+            // todo: draw tiles
         }
 
+        // Draw sidebar: 
+        // Draw current tile color 
+        
 
-        pub fn draw_grid<T: RaylibDraw>(&self, handle: &mut T){
-            todo!()
+        
+        match tile_editor.current_window.as_ref() {
+            Some(EditorWindow::Rhythm(editor))=> {editor.draw(&mut handle)},
+            Some(EditorWindow::Color(picker)) => {picker.draw(&mut handle)},
+            Some(EditorWindow::Text(text_editor)) => {text_editor.draw(&mut handle)},
+            None => {()}
         }
+        // todo!()
     }
 
 
@@ -115,29 +140,66 @@ mod editor{
 
 
 
+
+
 }
+
+// let message = "Lorem ipsum dolor omos";
+// let c_message = CString::new(message).or(Err(()))?;
+// let font = handle.get_font_default();
+// let length = raylib::text::measure_text_ex(font, &message, 10.0, 1.0);
+// let bounds = Rectangle {width: length.x, height: length.y, x: 50.0, y:50.0};
+// handle.gui_dummy_rec(bounds, Some(&c_message));
+// }
+
 
 
 
 fn main() -> Result<(),()>{
-    let (mut rl, mut rthred) = raylib::init()
-        .height(720)
-        .width(480)
+    let window_height = 1280;
+    let window_width = 1280;
+    let (mut rl, rthred) = raylib::init()
+        .height(window_height)
+        .width(window_width)
         .title("Editor")
         .build();
+    let mut ctx = editor::RaylibContext{
+        handle: rl,
+        thread: rthred
+    };
+    let center = math::Vector2 { x: (window_width / 2) as f32, y: (window_height / 2) as f32 };
 
     let mut text: Vec<u8> = Vec::with_capacity(100_000);
     let bounds = Rectangle{width: 50.0, height: 50.0,x: 50.0, y:50.0};
+    let level_editor = editor::TileEditor::new();
+    let mut camera = Camera2D{
+        offset: center,
+        target: center,
+        rotation: 0.0,
+        zoom: 1.0
+    };
+    let scroll_speed = 150.0;
+    let scroll_border = 50.0;
     while !rl.window_should_close() {
-        let mut  handle: prelude::RaylibDrawHandle = rl.begin_drawing(&rthred);
-        handle.clear_background(color::Color::WHITE);
-        let message = "Lorem ipsum dolor omos";
-        let c_message = CString::new(message).or(Err(()))?;
-        let font = handle.get_font_default();
-        let length = raylib::text::measure_text_ex(font, &message, 10.0, 1.0);
-        let bounds = Rectangle {width: length.x, height: length.y, x: 50.0, y:50.0};
-        handle.gui_dummy_rec(bounds, Some(&c_message));
-    }
+        let delta_t = rl.get_frame_time();
+        let mouse_position = rl.get_mouse_position();
+        if mouse_position.x < scroll_border {
+            camera.target.x -= scroll_speed * delta_t;
+        }
 
+        if (window_width as f32) - mouse_position.x < scroll_border {
+            camera.target.x += scroll_speed * delta_t
+        } 
+
+        if mouse_position.y < scroll_border {
+            camera.target.y -= scroll_speed * delta_t;
+        }
+
+        if (window_height as f32) - mouse_position.y < scroll_border {
+            camera.target.y += scroll_speed * delta_t;
+        }
+
+        editor::draw_window(&mut ctx, &camera, &level_editor);
+    }
     Ok(())
 }
